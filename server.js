@@ -1,59 +1,105 @@
 const express = require("express");
-const req = require("express/lib/request");
-const fs = require("fs");
 const path = require("path");
-
-const app = express();
+const fs = require("fs").promises;
 const PORT = process.env.PORT || 3001;
-// middleware to serve static files
+const app = express();
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
-// routes
-app.get("/", (req, res) => {
-  // logc for homepage route
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
 
-app.get("/notes", (req, res) => {
-  // Logic for notes page route
-  res.sendFile(path.join(__dirname, "public", "notes.html"));
-});
+// Serve up index.html as the homescreen
+app.get("/", (req, res) =>
+  res.sendFile(path.join(__dirname, "./public/index.html"))
+);
 
+// Serve up notes.html when this url is requested
+app.get("/notes", (req, res) =>
+  res.sendFile(path.join(__dirname, "./public/notes.html"))
+);
+
+// Serve up the db.json file when this url is requested
 app.get("/api/notes", (req, res) => {
-  // Logic to read notes from JSON file
-  const notes = JSON.parse(fs.readFileSync("db.json", "utf8"));
-  res.json(notes);
+  // Read the contents of db.json file asynchronously
+  fs.readFile(path.join(__dirname, "./db/db.json"), "utf8")
+    .then((data) => {
+      // Parse the JSON data into an array of notes
+      const notes = JSON.parse(data);
+      // Send the notes as a JSON response
+      res.json(notes);
+    })
+    .catch((err) => console.error(err));
 });
 
+// Catch-all to serve up the homescreen for any other urls
+app.get("*", (req, res) =>
+  res.sendFile(path.join(__dirname, "./public/index.html"))
+);
+
+// Listen for a post to this address
 app.post("/api/notes", (req, res) => {
-  // Logic to create  new note and save to the JSON file
-  const newNote = req.body; // Assuming you're using a body parser middleware to parse the request body
-  // Generate a unique ID for the new note
-  newNote.id = generateUniqueId();
-  // Save the new note to the JSON file
-  const notes = JSON.parse(fs.readFileSync("db.json", "utf8"));
-  notes.push(newNote);
-  fs.writeFileSync("db.json", JSON.stringify(notes));
-  res.json(newNote);
+  // Destructure the request body into variables
+  const { title, text } = req.body;
+  // If the requisite values are received...
+  if (title && text) {
+    // ...then create a newNote object.
+    const newNote = {
+      title,
+      text,
+    };
+    // Read the contents of db.json file asynchronously
+    fs.readFile(path.join(__dirname, "./db/db.json"), "utf8")
+      .then((data) => {
+        // Parse the JSON data into an array of notes
+        const notes = JSON.parse(data);
+        // Add the new note to the notes array
+        notes.push(newNote);
+        // Assign IDs to the notes
+        notes.forEach((obj, index) => {
+          obj.id = index + 1;
+        });
+        // Convert the notes array back to JSON
+        const notesJson = JSON.stringify(notes, null, 4);
+        // Write the updated notes back to db.json file asynchronously
+        return fs.writeFile(path.join(__dirname, "./db/db.json"), notesJson);
+      })
+      .then(() => {
+        console.info("Note successfully saved.");
+        res.send("Note successfully saved.");
+      })
+      .catch((err) => console.error(err));
+  } else {
+    // otherwise, respond with an error
+    res.status(500).json("Error occurred while saving the note.");
+  }
 });
 
+// Listen for a delete request to this address
 app.delete("/api/notes/:id", (req, res) => {
-  // Logic to delete a note with the specified ID from the JSON file
-  const noteId = req.params.id;
-  const notes = JSON.parse(fs.readFileSync("db.json", "utf8"));
-  const updatedNotes = notes.filter((note) => note.id !== noteId);
-  fs.writeFileSync("db.json", JSON.stringify(updatedNotes));
-  res.sendStatus(200);
+  const deleteID = req.params.id;
+  // Read the contents of db.json file asynchronously
+  fs.readFile(path.join(__dirname, "./db/db.json"), "utf8")
+    .then((data) => {
+      // Parse the JSON data into an array of notes
+      const notes = JSON.parse(data);
+      // Filter out the note with the specified ID
+      const newNotes = notes.filter((obj) => obj.id != deleteID);
+      // Re-assign IDs to the remaining notes
+      newNotes.forEach((obj, index) => {
+        obj.id = index + 1;
+      });
+      // Convert the updated notes array back to JSON
+      const newNotesJson = JSON.stringify(newNotes, null, 4);
+      // Write the updated notes back to db.json file asynchronously
+      return fs.writeFile(path.join(__dirname, "./db/db.json"), newNotesJson);
+    })
+    .then(() => {
+      console.info("Note successfully deleted.");
+      res.send("Note successfully deleted.");
+    })
+    .catch((err) => console.error(err));
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
-
-// Function to generate a unique ID for a new note
-function generateUniqueId() {
-  // Generate a unique ID using a library or algorithm of your choice
-  // For simplicity, you can use a timestamp-based approach or a random string generator
-  // Make sure the generated ID is unique in your application
-  // Return the generated ID
-}
+app.listen(PORT, () =>
+  console.log(`App listening at http://localhost:${PORT}`)
+);
